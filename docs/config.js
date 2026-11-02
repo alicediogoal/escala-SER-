@@ -1,2 +1,1 @@
-// Cole aqui o endereço do app da web do Google Apps Script (termina em /exec).
-window.SER_API = "COLE_AQUI_O_ENDERECO";
+https://script.google.com/macros/s/AKfycbwBazfG91W8pIJ46UhbcTURmza9rQEKrR2OdH7hJxVsmzoZN1LfnaiZS2AwyIDUVD3v/exec
