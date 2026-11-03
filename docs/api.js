@@ -43,7 +43,7 @@ async function carregar() {
   (s.availability || []).forEach(a => (S.avail[a.membro] = S.avail[a.membro] || []).push(a.data));
   S.avail[me.id] = s.mine;
   S.meets = s.meetings; S.sugs = s.suggestions || [];
-  S.files = s.files.map(f => ({ id: f.id, name: f.name, kb: f.kb, by: f.by || "—", kind: KIND[f.kind] || f.kind, hol: f.holyrics, off: false }));
+  S.files = s.files.map(f => ({ id: f.id, name: f.name, kb: f.kb, by: f.by || "—", kind: KIND[f.kind] || f.kind, hol: f.holyrics, mid: f.mid, off: false }));
   await Promise.all(S.files.map(async f => { try { f.off = !!(await idbGet(f.id)); } catch (e) {} }));
   offline = false;
   try { localStorage.setItem("ser_cache", JSON.stringify({ S, me })); } catch (e) {}
@@ -68,50 +68,94 @@ function fechaDica() { try { localStorage.setItem("ser_dica", "1"); } catch (e) 
 const falha = async e => { alert(e.message); try { await carregar(); } catch (_) {} R(); };
 
 // ---------- Entrada ----------
+let regDraft = {}, phDraft = "", busy = false;
+const lerReg = () => {
+  const g = id => document.getElementById(id);
+  regDraft = { n: g("rn") ? g("rn").value : regDraft.n, b: g("rb") ? g("rb").value : regDraft.b, e: g("re") ? g("re").value : regDraft.e,
+    c: g("rc") ? g("rc").checked : regDraft.c, m: [...document.querySelectorAll(".rm:checked")].map(x => x.value) };
+};
+function trava(b, t) { if (b) { b.disabled = true; b.textContent = t; b.style.opacity = ".7"; } }
+
+// Cadastro: os campos digitados são mantidos quando aparece um erro
+function regView() {
+  const d = regDraft, hoje = new Date().toISOString().slice(0, 10);
+  return `<div class="lg"><header class="hero"><img src="logo.jpg" alt="Ser" width="230" height="230"><p>Primeiro acesso</p></header><main><h2>Criar cadastro</h2><p class="muted">WhatsApp: ${esc(reg)}</p>
+<label for="rn">Seu nome</label><input id="rn" autocomplete="name" placeholder="Nome e sobrenome" value="${esc(d.n || "")}">
+<label for="rb">Data de nascimento</label><input id="rb" type="date" min="1900-01-01" max="${hoje}" autocomplete="bday" value="${esc(d.b || "")}">
+<label for="re">E-mail</label><input id="re" type="email" inputmode="email" autocomplete="email" placeholder="voce@email.com" value="${esc(d.e || "")}">
+<p style="margin:4px 0"><b>Em quais ministérios você serve?</b></p>
+${Object.entries(MIN).map(([k, v]) => `<div class="chk"><input type="checkbox" class="rm" value="${k}" id="r${k}" ${(d.m || []).includes(k) ? "checked" : ""}><label for="r${k}">${v}</label></div>`).join("")}
+<div class="chk"><input id="rc" type="checkbox" ${d.c ? "checked" : ""}><label for="rc">Aceito receber lembretes de escala e avisos por e-mail.</label></div>
+${err ? `<p style="color:var(--er)">${err}</p>` : ""}
+<button class="btn block" onclick="doReg(this)">Criar cadastro</button><button class="btn ghost block" style="margin-top:8px" onclick="reg='';err='';regDraft={};R()">Voltar</button></main></div>`;
+}
 function login() {
   if (reg) return regView();
   if (codeFor) return `<div class="lg"><header class="hero"><img src="logo.jpg" alt="Ser" width="230" height="230"><p>“Aquele que quer ser o maior, seja o que serve.”</p></header>
-<main><h2>Código de acesso</h2><p class="muted">Enviamos um código de 6 dígitos para o e-mail ${esc(codeMail)}. Se não encontrar, olhe a caixa de spam.</p>
+<main><h2>Código de acesso</h2><p class="muted">Enviamos um código de 6 dígitos para o e-mail ${esc(codeMail)}. Pode levar alguns minutos. Se não encontrar, olhe a caixa de spam.</p>
 <label for="cd">Código</label><input id="cd" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
 ${err ? `<p style="color:var(--er);margin:0 0 10px">${err}</p>` : ""}
-<button class="btn block" onclick="doCode()">Entrar</button>
+<button class="btn block" onclick="doCode(this)">Entrar</button>
+<button class="btn ghost block" style="margin-top:8px" onclick="reenviar(this)">Reenviar código</button>
 <button class="btn ghost block" style="margin-top:8px" onclick="codeFor='';err='';R()">Voltar</button></main></div>`;
   return `<div class="lg"><header class="hero"><img src="logo.jpg" alt="Ser" width="230" height="230"><p>“Aquele que quer ser o maior, seja o que serve.”</p></header>
 <main><h2>Entrar</h2><p class="muted">Informe seu WhatsApp. O código de acesso será enviado para o e-mail do seu cadastro. No primeiro acesso, você cria o cadastro na próxima tela.</p>
-<label for="ph">WhatsApp (com DDD)</label><input id="ph" type="tel" inputmode="tel" placeholder="11 99999-0001" autocomplete="tel">
+<label for="ph">WhatsApp (com DDD)</label><input id="ph" type="tel" inputmode="tel" placeholder="11 99999-0001" autocomplete="tel" value="${esc(phDraft)}">
 ${err ? `<p style="color:var(--er);margin:0 0 10px">${err}</p>` : ""}
-<button class="btn block" onclick="doLogin()">Continuar</button>
+<button class="btn block" onclick="doLogin(this)">Continuar</button>
 <p class="ios">No iPhone: abra no Safari, toque em Compartilhar e depois em “Adicionar à Tela de Início”. O Ser abre como um app.</p></main></div>`;
 }
 async function pedirCodigo(n) {
   const r = await call("code", { phone: n });
   codeFor = n; codeMail = r.email; err = ""; R();
 }
-async function doLogin() {
-  const n = document.getElementById("ph").value.replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "");
+async function doLogin(btn) {
+  if (busy) return;
+  phDraft = document.getElementById("ph").value;
+  const n = phDraft.replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "");
   if (n.length < 10) { err = "Informe o WhatsApp com DDD."; return R(); }
+  busy = true; trava(btn, "Enviando código...");
   try { await pedirCodigo(n); }
-  catch (e) { if (e.status === 404) { reg = n; err = ""; return R(); } err = e.message; R(); }
+  catch (e) { if (e.status === 404) { reg = n; err = ""; regDraft = {}; R(); } else { err = e.message; R(); } }
+  finally { busy = false; }
 }
-async function doCode() {
+async function reenviar(btn) {
+  if (busy) return;
+  busy = true; trava(btn, "Enviando...");
+  try { const r = await call("code", { phone: codeFor }); codeMail = r.email; err = "Código reenviado. Olhe também o spam."; }
+  catch (e) { err = e.message; }
+  finally { busy = false; R(); }
+}
+async function doCode(btn) {
+  if (busy) return;
+  busy = true; trava(btn, "Entrando...");
   try {
     const r = await call("verify", { phone: codeFor, code: document.getElementById("cd").value.trim() });
     token = r.token;
     try { localStorage.setItem(TK, token); } catch (e) {}
-    codeFor = ""; codeMail = ""; err = ""; tab = "inicio";
+    codeFor = ""; codeMail = ""; err = ""; phDraft = ""; tab = "inicio";
     await carregar(); R();
   } catch (e) { err = e.message; R(); }
+  finally { busy = false; }
 }
-async function doReg() {
-  const n = rn.value.trim(), m = [...document.querySelectorAll(".rm:checked")].map(x => x.value);
+async function doReg(btn) {
+  if (busy) return;
+  lerReg();
+  const d = regDraft, n = (d.n || "").trim(), m = d.m || [];
   if (!n || !m.length) { err = "Informe seu nome e ao menos um ministério."; return R(); }
-  if (!rb.value || rb.value > new Date().toISOString().slice(0, 10) || rb.value < "1900-01-01") { err = "Informe uma data de nascimento válida."; return R(); }
-  if (!/^\S+@\S+\.\S+$/.test(re.value.trim())) { err = "Informe um e-mail válido."; return R(); }
-  if (!rc.checked) { err = "Para usar o Ser, aceite receber os lembretes por e-mail."; return R(); }
+  if (!d.b || d.b > new Date().toISOString().slice(0, 10) || d.b < "1900-01-01") { err = "Informe uma data de nascimento válida."; return R(); }
+  if (!/^\S+@\S+\.\S+$/.test((d.e || "").trim())) { err = "Informe um e-mail válido."; return R(); }
+  if (!d.c) { err = "Para usar o Ser, aceite receber os lembretes por e-mail."; return R(); }
+  busy = true; trava(btn, "Criando cadastro...");
+  const p = reg;
   try {
-    await call("register", { name: n, phone: reg, birth: rb.value, email: re.value.trim(), ministries: m, optin: true });
-    const p = reg; reg = ""; await pedirCodigo(p);
+    try { await call("register", { name: n, phone: p, birth: d.b, email: d.e.trim(), ministries: m, optin: true }); }
+    catch (e) { if (e.status !== 409) throw e; }          // número já cadastrado: segue para o código
+    reg = ""; regDraft = {}; phDraft = p;
+    try { await pedirCodigo(p); }
+    catch (e2) { err = "Cadastro criado. " + e2.message + " Toque em Continuar para tentar de novo."; R(); }
   } catch (e) { err = e.message; R(); }
+  finally { busy = false; }
 }
 function logout() {
   token = null; me = null; codeFor = ""; err = "";
@@ -211,6 +255,15 @@ async function dl(id) {
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     R();
   } catch (e) { alert("Não foi possível baixar. Verifique a conexão."); }
+}
+async function apagarF(id) {
+  const f = S.files.find(x => x.id === id);
+  if (!f || !confirm('Apagar "' + f.name + '"? O arquivo sai do app, do Drive e da pasta do Holyrics no Drive.')) return;
+  try {
+    await call("file.del", { id });
+    try { const d = await idb(); await new Promise((ok, no) => { const t = d.transaction("f", "readwrite"); t.objectStore("f").delete(id); t.oncomplete = ok; t.onerror = () => no(t.error); }); } catch (e) {}
+    await carregar(); R();
+  } catch (e) { alert(e.message); }
 }
 async function toHol(id) { try { await call("file.holyrics", { id }); await carregar(); R(); } catch (e) { alert(e.message); } }
 
