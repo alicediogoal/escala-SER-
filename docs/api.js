@@ -220,14 +220,19 @@ document.addEventListener("visibilitychange", () => {
   carregar().then(() => { if (tab === "inicio") R(); }).catch(() => {});
 });
 (async () => {
-  if (token) {
+  if (!token) { R(); }
+  else {
+    let cached = null; try { cached = JSON.parse(localStorage.getItem("ser_cache") || "null"); } catch (_) {}
+    if (cached && cached.me) { S = cached.S; me = cached.me; R(); }   // abre na hora com os últimos dados
+    else document.getElementById("app").innerHTML = '<div class="lg"><header class="hero"><img src="logo.jpg" alt="Ser" width="230" height="230"></header><main><p class="muted" style="text-align:center">Carregando...</p></main></div>';
     try { await carregar(); }
     catch (e) {
-      if (e.status === 401) { token = null; try { localStorage.removeItem(TK); } catch (_) {} }
-      else if (e.net) { try { const c = JSON.parse(localStorage.getItem("ser_cache") || "null"); if (c) { S = c.S; me = c.me; offline = true; } } catch (_) {} }
+      if (e.status === 401) { token = null; me = null; try { localStorage.removeItem(TK); localStorage.removeItem("ser_cache"); } catch (_) {} }
+      else if (e.net && cached && cached.me) { offline = true; }
       else if (e.cfg) err = e.message;
+      else if (!cached) err = e.message;
     }
+    R();
   }
-  R();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
