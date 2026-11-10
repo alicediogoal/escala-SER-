@@ -146,7 +146,24 @@ function shell(){
   <nav>${tabs.map(([k,l])=>`<button class="${tab===k?"on":""}" onclick="go('${k}')">${l}</button>`).join("")}</nav>`;
 }
 function go(t){tab=t;R();window.scrollTo(0,0)}
-function chips(){return `<div class="chips">${days.map(d=>`<button class="chip ${d===day?"on":""}" onclick="setDay('${d}')">${fmt(d)}</button>`).join("")}</div>`}
+// ---- datas separadas por mês ----
+let mesSel="";
+const NM=["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+const mesDe=d=>d.slice(0,7);
+const cap=t=>t.charAt(0).toUpperCase()+t.slice(1);
+const nomeMes=m=>cap(NM[+m.slice(5,7)-1])+" de "+m.slice(0,4);
+const listaMeses=()=>[...new Set(days.map(mesDe))];
+function mesBar(cur,fn,cont){
+  const a=(S.avail[me.id]||[]),ano=days[0].slice(0,4);
+  return `<div class="chips">${listaMeses().map(m=>{const n=cont?a.filter(d=>mesDe(d)===m).length:0;
+    return `<button class="chip ${m===cur?"on":""}" onclick="${fn}('${m}')">${cap(NM[+m.slice(5,7)-1]).slice(0,3)}${m.slice(0,4)!==ano?" "+m.slice(2,4):""}${n?" · "+n:""}</button>`}).join("")}</div>`;
+}
+function setMes(m){mesSel=m;R()}
+function setMesEsc(m){const f=days.find(d=>mesDe(d)===m);if(f)day=f;R()}
+function chips(){
+  const m=mesDe(day||days[0]);
+  return mesBar(m,"setMesEsc",false)+`<div class="chips">${days.filter(d=>mesDe(d)===m).map(d=>`<button class="chip ${d===day?"on":""}" onclick="setDay('${d}')">${fmt(d)}</button>`).join("")}</div>`;
+}
 function setDay(d){day=d;R()}
 function frase(){return `<div style="width:40px;height:3px;background:var(--au);margin:30px auto 14px"></div><p class="hd" style="text-align:center;margin:0 12px;font-size:17px;font-weight:600">Servir é a nossa forma de parecer com Jesus.</p><p class="muted" style="text-align:center;margin:4px 0 0">Lucas 22:27</p>`}
 function vInicio(){
@@ -195,9 +212,11 @@ function setN(v){S.notes[day]=v;save()}
 function pub(){S.pub[day]=!S.pub[day];save();R()}
 
 function vDatas(){
-  const a=S.avail[me.id]||[];
-  return `<h2>Minha disponibilidade</h2><p class="muted">Toque nas datas em que você pode servir. Depois, o líder define sua função na escala.</p>`+
-  days.map(d=>`<button class="day ${a.includes(d)?"on":""}" aria-pressed="${a.includes(d)}" onclick="tog('${d}')"><span>${fmt(d)}</span><b>${a.includes(d)?"Disponível":"Toque para confirmar"}</b></button>`).join("");
+  const a=S.avail[me.id]||[],ms=listaMeses();
+  if(!ms.includes(mesSel))mesSel=ms[0];
+  return `<h2>Minha disponibilidade</h2><p class="muted">Toque nas datas em que você pode servir. Depois, o líder define sua função na escala.</p>`+mesBar(mesSel,"setMes",true)+
+  `<h3 style="margin:2px 0 8px">${nomeMes(mesSel)}</h3>`+
+  days.filter(d=>mesDe(d)===mesSel).map(d=>`<button class="day ${a.includes(d)?"on":""}" aria-pressed="${a.includes(d)}" onclick="tog('${d}')"><span>${fmt(d)}</span><b>${a.includes(d)?"Disponível":"Toque para confirmar"}</b></button>`).join("");
 }
 function tog(d){const a=S.avail[me.id]=S.avail[me.id]||[];const i=a.indexOf(d);i<0?a.push(d):a.splice(i,1);save();R()}
 
