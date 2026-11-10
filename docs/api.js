@@ -9,6 +9,7 @@ const KIND = { "Imagens": "Imagem", "Vídeos": "Vídeo", "Áudios": "Áudio" };
 const cargoIdx = n => CARGOS.findIndex(c => c[0] === n);
 
 // Chamada ao servidor. Sem cabeçalhos extras (evita bloqueio de CORS no Apps Script).
+const guardaCache = () => { try { localStorage.setItem("ser_cache", JSON.stringify({ S, me })); } catch (e) {} };
 async function call(a, p = {}) {
   const url = window.SER_API;
   if (!url || url.indexOf("COLE_AQUI") >= 0) { const x = new Error("O endereço do servidor ainda não foi configurado (config.js)."); x.cfg = true; throw x; }
@@ -22,6 +23,7 @@ async function call(a, p = {}) {
     if (d.status === 401 && token && !["verify", "code", "register"].includes(a)) sair();
     throw x;
   }
+  if (me && !["state", "code", "verify", "register", "file.get"].includes(a)) guardaCache();
   return d.data;
 }
 
@@ -42,11 +44,12 @@ async function carregar() {
   });
   (s.availability || []).forEach(a => (S.avail[a.membro] = S.avail[a.membro] || []).push(a.data));
   S.avail[me.id] = s.mine;
+  S.canHol = !!s.canHol;
   S.meets = s.meetings; S.sugs = s.suggestions || [];
   S.files = s.files.map(f => ({ id: f.id, name: f.name, kb: f.kb, by: f.by || "—", kind: KIND[f.kind] || f.kind, hol: f.holyrics, mid: f.mid, off: false }));
   await Promise.all(S.files.map(async f => { try { f.off = !!(await idbGet(f.id)); } catch (e) {} }));
   offline = false;
-  try { localStorage.setItem("ser_cache", JSON.stringify({ S, me })); } catch (e) {}
+  guardaCache();
 }
 
 function R() {
@@ -65,7 +68,12 @@ function dicaIOS(a) {
   a.insertAdjacentHTML("afterbegin", '<div id="dica" style="background:#D4AF37;color:#0F172A;padding:10px 14px;font-size:14px;display:flex;gap:10px;align-items:center"><span style="flex:1">Para usar o Ser como app no iPhone: abra no <b>Safari</b>, toque em <b>Compartilhar</b> e depois em <b>Adicionar à Tela de Início</b>.</span><button onclick="fechaDica()" style="min-height:36px;padding:6px 12px;border:0;border-radius:8px;background:#0F172A;color:#fff;font-weight:600">OK</button></div>');
 }
 function fechaDica() { try { localStorage.setItem("ser_dica", "1"); } catch (e) {} const d = document.getElementById("dica"); if (d) d.remove(); }
-const falha = async e => { alert(e.message); try { await carregar(); } catch (_) {} R(); };
+const falha = async e => {
+  alert(e.message + (e.net ? " A alteração não foi salva." : ""));
+  try { await carregar(); }
+  catch (_) { try { const c = JSON.parse(localStorage.getItem("ser_cache") || "null"); if (c) { S = c.S; me = c.me; offline = !!e.net; } } catch (__) {} }
+  R();
+};
 
 // ---------- Entrada ----------
 let regDraft = {}, phDraft = "", busy = false;
@@ -183,7 +191,7 @@ async function setS(i, v) {
   R();
   try { await putEv(day); } catch (e) { falha(e); }
 }
-async function setN(v) { S.notes[day] = v; try { await putEv(day); } catch (e) { alert(e.message); } }
+async function setN(v) { S.notes[day] = v; try { await putEv(day); } catch (e) { falha(e); } }
 async function pub() {
   const d = day; S.pub[d] = !S.pub[d]; R();
   try { await putEv(d); } catch (e) { S.pub[d] = !S.pub[d]; alert(e.message); R(); }
